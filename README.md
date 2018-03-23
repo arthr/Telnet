@@ -22,9 +22,9 @@ Telnet client written in php
 try {
     $telnet = new \miyahan\network\Telnet('10.0.0.1');
     $telnet->connect();
-    $telnet->login('foo', 'bar', 'cisco');
+    $telnet->login('username', 'password', 'ios');
     $telnet->exec('terminal length 0');
-    $telnet->exec('enable'."\r\n".'foobar');
+    $telnet->exec('enable'."\r\n".'secret');
     $telnet->setPrompt('router#');
     
     $result = $telnet->exec('show env all');
