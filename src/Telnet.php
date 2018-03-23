@@ -1,4 +1,5 @@
 <?php
+
 namespace miyahan\network;
 
 /**
@@ -24,7 +25,7 @@ class Telnet
     private $errstr;
     private $strip_prompt = true;
     private $eol = "\r\n";
-
+    private $enableMagicControl = true;
     private $NULL;
     private $DC1;
     private $WILL;
@@ -82,12 +83,7 @@ class Telnet
         $this->buffer = null;
     }
 
-    /**
-     * Attempts connection to remote host. Returns true if successful.
-     *
-     * @return bool
-     * @throws \Exception
-     */
+
     public function connect()
     {
         // check if we need to convert host to IP
@@ -112,13 +108,13 @@ class Telnet
             $this->waitPrompt();
         }
 
-        return self::TELNET_OK;
+        return $this;
     }
 
     /**
      * Closes IP socket
      *
-     * @return bool
+     * @return $this
      * @throws \Exception
      */
     public function disconnect()
@@ -129,7 +125,7 @@ class Telnet
             }
             $this->socket = null;
         }
-        return self::TELNET_OK;
+        return $this;
     }
 
     /**
@@ -148,6 +144,72 @@ class Telnet
     }
 
     /**
+     * Disable sending magic symbols for wait
+     *
+     * @return $this
+     */
+    public function disableMagicControl()
+    {
+        $this->enableMagicControl = false;
+        return $this;
+    }
+
+    /**
+     * Enable sending magic symbols for wait
+     *
+     * @return $this
+     */
+    public function enableMagicControl()
+    {
+        $this->enableMagicControl = true;
+        return $this;
+    }
+
+    /**
+     * Disable strip prompt
+     *
+     * @return $this
+     */
+    public function disableStripPrompt()
+    {
+        $this->strip_prompt = false;
+        return $this;
+    }
+
+    /**
+     * Enable strip prompt
+     *
+     * @return $this
+     */
+    public function enableStripPrompt()
+    {
+        $this->strip_prompt = true;
+        return $this;
+    }
+
+    /**
+     * Setted EOL symbol for new line in linux style (\n)
+     *
+     * @return $this
+     */
+    public function setLinuxEOL()
+    {
+        $this->eol = "\n";
+        return $this;
+    }
+
+    /**
+     * Setted EOL symbol for new line in windows style (\r\n)
+     *
+     * @return $this
+     */
+    public function setWinEOL()
+    {
+        $this->eol = "\r\n";
+        return $this;
+    }
+
+    /**
      * Attempts login to remote host.
      * This method is a wrapper for lower level private methods and should be
      * modified to reflect telnet implementation details like login/password
@@ -156,7 +218,7 @@ class Telnet
      * @param string $username Username
      * @param string $password Password
      * @param string $host_type Type of destination host
-     * @return bool
+     * @return $this
      * @throws \Exception
      */
     public function login($username, $password, $host_type = 'linux')
@@ -186,8 +248,22 @@ class Telnet
                 $prompt_reg = '[>#]';
                 break;
 
-            default:
-                throw new \Exception('Host type is invalid');
+            case 'dlink': // Dlink
+                $user_prompt = 'ame:';
+                $pass_prompt = 'ord:';
+                $prompt_reg = '[>|#]';
+                break;
+
+            case 'xos': // Xtreme routers and switches
+                $user_prompt = 'login:';
+                $pass_prompt = 'password:';
+                $prompt_reg = '\.[0-9]{1,3} > ';
+                break;
+
+            case 'bdcom': // BDcom PON switches
+                $user_prompt = 'login:';
+                $pass_prompt = 'password:';
+                $prompt_reg = '[ > ]';
                 break;
         }
 
@@ -211,7 +287,7 @@ class Telnet
             throw new \Exception("Login failed.");
         }
 
-        return self::TELNET_OK;
+        return $this;
     }
 
     /**
@@ -219,11 +295,12 @@ class Telnet
      * This should be set to the last character of the command line prompt
      *
      * @param string $str String to respond to
-     * @return boolean
+     * @return $this
      */
     public function setPrompt($str)
     {
-        return $this->setRegexPrompt(preg_quote($str, '/'));
+        $this->setRegexPrompt(preg_quote($str, '/'));
+        return $this;
     }
 
     /**
@@ -231,12 +308,12 @@ class Telnet
      * This should be set to the last line of the command line prompt.
      *
      * @param string $str Regex string to respond to
-     * @return boolean
+     * @return $this
      */
     public function setRegexPrompt($str)
     {
         $this->prompt = $str;
-        return self::TELNET_OK;
+        return $this;
     }
 
     /**
@@ -260,7 +337,7 @@ class Telnet
     public function stripPromptFromBuffer($strip)
     {
         $this->strip_prompt = $strip;
-    } // function stripPromptFromBuffer
+    }
 
     /**
      * Gets character from the socket
@@ -278,11 +355,12 @@ class Telnet
     /**
      * Clears internal command buffer
      *
-     * @return void
+     * @return $this
      */
     public function clearBuffer()
     {
         $this->buffer = '';
+        return $this;
     }
 
     /**
@@ -310,7 +388,6 @@ class Telnet
             }
 
             $c = $this->getc();
-
             if ($c === false) {
                 if (empty($prompt)) {
                     return self::TELNET_OK;
@@ -374,7 +451,7 @@ class Telnet
     protected function getBuffer()
     {
         // Remove all carriage returns from line breaks
-        $buf = preg_replace('/\r\n|\r/', "\n", $this->buffer);
+        $buf = str_replace(["\n\r", "\r\n", "\n", "\r"], "\n", $this->buffer);
         // Cut last line from buffer (almost always prompt)
         if ($this->strip_prompt) {
             $buf = explode("\n", $buf);
@@ -404,8 +481,9 @@ class Telnet
      */
     protected function negotiateTelnetOptions()
     {
-        $c = $this->getc();
+        if (!$this->enableMagicControl) return self::TELNET_OK;
 
+        $c = $this->getc();
         if ($c != $this->IAC) {
             if (($c == $this->DO) || ($c == $this->DONT)) {
                 $opt = $this->getc();
